@@ -6,7 +6,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // 🔐 GET ALL USERS (JWT PROTECTED)
+  //  GET ALL USERS (JWT PROTECTED)
   @UseGuards(JwtAuthGuard)
   @Get()
   findAll() {

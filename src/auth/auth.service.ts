@@ -18,7 +18,7 @@ export class AuthService {
 
     private jwtService: JwtService,
 
-    // 🔥 QUEUE INJECTION (IMPORTANT)
+    // QUEUE INJECTION (IMPORTANT)
     @InjectQueue('email-queue')
     private emailQueue: Queue,
   ) {}
@@ -44,7 +44,7 @@ export class AuthService {
         role: (data.role?.toUpperCase() as Role) || Role.USER,
       });
 
-      // 🚀 SEND EMAIL USING QUEUE (NOT DIRECT EMAIL)
+      // SEND EMAIL USING QUEUE (NOT DIRECT EMAIL)
       await this.emailQueue.add('welcome-email', {
         to: user.email,
         name: user.name,

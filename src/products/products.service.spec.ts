@@ -1,104 +1,209 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ProductsController } from './products.controller';
+import { getModelToken } from '@nestjs/mongoose';
 import { ProductsService } from './products.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../common/guards/admin.guard';
+import { Product } from './products.schema';
 
-const mockProductsService = {
-  create: jest.fn(),
-  findAll: jest.fn(),
-  findOne: jest.fn(),
-  update: jest.fn(),
-  remove: jest.fn(),
+const mockProduct = {
+  _id: 'prod123',
+  name: 'Test Product',
+  price: 100,
+  stock: 10,
+  images: ['image1.jpg'],
 };
 
-describe('ProductsController', () => {
-  let controller: ProductsController;
+const mockProductModel = {
+  create: jest.fn(),
+  find: jest.fn(),
+  findById: jest.fn(),
+  findByIdAndUpdate: jest.fn(),
+  findByIdAndDelete: jest.fn(),
+};
+
+describe('ProductsService', () => {
+  let service: ProductsService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      controllers: [ProductsController],
-      providers: [{ provide: ProductsService, useValue: mockProductsService }],
-    })
-      .overrideGuard(JwtAuthGuard)
-      .useValue({ canActivate: () => true })
-      .overrideGuard(AdminGuard)
-      .useValue({ canActivate: () => true })
-      .compile();
+      providers: [
+        ProductsService,
+        { provide: getModelToken(Product.name), useValue: mockProductModel },
+      ],
+    }).compile();
 
-    controller = module.get<ProductsController>(ProductsController);
+    service = module.get<ProductsService>(ProductsService);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
+  // ─── CREATE ───────────────────────────────────────────────
+
   describe('create', () => {
-    it('should call productsService.create and return result', async () => {
-      const body = { name: 'Test Product', price: 100, stock: 10 } as any;
-      const files = [{ filename: 'img.jpg' }] as any[];
-      const mockResponse = { message: 'Product created successfully', data: {} };
+    const createDto = { name: 'Test Product', price: 100, stock: 10 } as any;
+    const files = [{ filename: 'image1.jpg' }] as any[];
 
-      mockProductsService.create.mockResolvedValue(mockResponse);
+    it('should create product successfully with images', async () => {
+      mockProductModel.create.mockResolvedValue(mockProduct);
 
-      const result = await controller.create(body, files);
+      const result = await service.create(createDto, files);
 
-      expect(mockProductsService.create).toHaveBeenCalledWith(body, files);
-      expect(result).toEqual(mockResponse);
+      expect(mockProductModel.create).toHaveBeenCalledWith({
+        ...createDto,
+        images: ['image1.jpg'],
+      });
+      expect(result.message).toBe('Product created successfully');
+      expect(result.data).toEqual(mockProduct);
+    });
+
+    it('should create product with empty images when no files', async () => {
+      mockProductModel.create.mockResolvedValue({ ...mockProduct, images: [] });
+
+      const result = await service.create(createDto, []);
+
+      expect(result.data).toBeDefined();
+    });
+
+    it('should return error on DB exception', async () => {
+      mockProductModel.create.mockRejectedValue(new Error('DB error'));
+
+      const result = await service.create(createDto, files);
+
+      expect(result).toEqual({ message: 'Error creating product', error: 'DB error' });
     });
   });
+
+  // ─── FIND ALL ─────────────────────────────────────────────
 
   describe('findAll', () => {
-    it('should call productsService.findAll without filters', async () => {
-      mockProductsService.findAll.mockResolvedValue({ data: [] });
+    it('should return all products without filters', async () => {
+      mockProductModel.find.mockResolvedValue([mockProduct]);
 
-      const result = await controller.findAll();
+      const result = await service.findAll();
 
-      expect(mockProductsService.findAll).toHaveBeenCalledWith(undefined, undefined, undefined);
-      expect(result).toEqual({ data: [] });
+      expect(mockProductModel.find).toHaveBeenCalledWith({});
+      expect(result.data).toEqual([mockProduct]);
     });
 
-    it('should pass query filters to service', async () => {
-      mockProductsService.findAll.mockResolvedValue({ data: [] });
+    it('should apply name filter (case insensitive regex)', async () => {
+      mockProductModel.find.mockResolvedValue([mockProduct]);
 
-      await controller.findAll('laptop', '5', '2024-01-01');
+      await service.findAll('Test');
 
-      expect(mockProductsService.findAll).toHaveBeenCalledWith('laptop', '5', '2024-01-01');
+      expect(mockProductModel.find).toHaveBeenCalledWith({
+        name: { $regex: 'Test', $options: 'i' },
+      });
+    });
+
+    it('should apply stock filter', async () => {
+      mockProductModel.find.mockResolvedValue([mockProduct]);
+
+      await service.findAll(undefined, '5');
+
+      expect(mockProductModel.find).toHaveBeenCalledWith({
+        stock: { $gte: 5 },
+      });
+    });
+
+    it('should apply date filter', async () => {
+      mockProductModel.find.mockResolvedValue([mockProduct]);
+
+      await service.findAll(undefined, undefined, '2024-01-01');
+
+      expect(mockProductModel.find).toHaveBeenCalledWith({
+        createdAt: { $gte: new Date('2024-01-01') },
+      });
+    });
+
+    it('should return error on exception', async () => {
+      mockProductModel.find.mockRejectedValue(new Error('DB error'));
+
+      const result = await service.findAll();
+
+      expect(result).toEqual({ message: 'Error fetching products', error: 'DB error' });
     });
   });
+
+  // ─── FIND ONE ─────────────────────────────────────────────
 
   describe('findOne', () => {
-    it('should call productsService.findOne with id', async () => {
-      mockProductsService.findOne.mockResolvedValue({ data: {} });
+    it('should return product by id', async () => {
+      mockProductModel.findById.mockResolvedValue(mockProduct);
 
-      const result = await controller.findOne('prod123');
+      const result = await service.findOne('prod123');
 
-      expect(mockProductsService.findOne).toHaveBeenCalledWith('prod123');
-      expect(result).toEqual({ data: {} });
+      expect(mockProductModel.findById).toHaveBeenCalledWith('prod123');
+      expect(result.data).toEqual(mockProduct);
+    });
+
+    it('should return error on invalid id', async () => {
+      mockProductModel.findById.mockRejectedValue(new Error('Cast error'));
+
+      const result = await service.findOne('invalid');
+
+      expect(result).toEqual({ message: 'Error fetching product', error: 'Cast error' });
     });
   });
+
+  // ─── UPDATE ───────────────────────────────────────────────
 
   describe('update', () => {
-    it('should call productsService.update with id, body, files', async () => {
-      const body = { name: 'Updated' } as any;
-      const files = [] as any[];
-      mockProductsService.update.mockResolvedValue({ message: 'Product updated successfully' });
+    const updateDto = { name: 'Updated Product' } as any;
 
-      const result = await controller.update('prod123', body, files);
+    it('should update product with new images', async () => {
+      const updatedProduct = { ...mockProduct, name: 'Updated Product' };
+      mockProductModel.findByIdAndUpdate.mockResolvedValue(updatedProduct);
 
-      expect(mockProductsService.update).toHaveBeenCalledWith('prod123', body, files);
-      expect(result).toEqual({ message: 'Product updated successfully' });
+      const files = [{ filename: 'new-image.jpg' }] as any[];
+      const result = await service.update('prod123', updateDto, files);
+
+      expect(mockProductModel.findByIdAndUpdate).toHaveBeenCalledWith(
+        'prod123',
+        { name: 'Updated Product', images: ['new-image.jpg'] },
+        { new: true },
+      );
+      expect(result.data).toEqual(updatedProduct);
+    });
+
+    it('should update product without images when files empty', async () => {
+      mockProductModel.findByIdAndUpdate.mockResolvedValue(mockProduct);
+
+      await service.update('prod123', updateDto, []);
+
+      expect(mockProductModel.findByIdAndUpdate).toHaveBeenCalledWith(
+        'prod123',
+        { name: 'Updated Product' },
+        { new: true },
+      );
+    });
+
+    it('should return error on update failure', async () => {
+      mockProductModel.findByIdAndUpdate.mockRejectedValue(new Error('Update failed'));
+
+      const result = await service.update('prod123', updateDto, []);
+
+      expect(result).toEqual({ message: 'Error updating product', error: 'Update failed' });
     });
   });
 
+  // ─── REMOVE ───────────────────────────────────────────────
+
   describe('remove', () => {
-    it('should call productsService.remove with id', async () => {
-      mockProductsService.remove.mockResolvedValue({ message: 'Product deleted successfully' });
+    it('should delete product and return success message', async () => {
+      mockProductModel.findByIdAndDelete.mockResolvedValue(mockProduct);
 
-      const result = await controller.remove('prod123');
+      const result = await service.remove('prod123');
 
-      expect(mockProductsService.remove).toHaveBeenCalledWith('prod123');
-      expect(result).toEqual({ message: 'Product deleted successfully' });
+      expect(mockProductModel.findByIdAndDelete).toHaveBeenCalledWith('prod123');
+      expect(result.message).toBe('Product deleted successfully');
+    });
+
+    it('should return error on delete failure', async () => {
+      mockProductModel.findByIdAndDelete.mockRejectedValue(new Error('Delete failed'));
+
+      const result = await service.remove('prod123');
+
+      expect(result).toEqual({ message: 'Error deleting product', error: 'Delete failed' });
     });
   });
 });

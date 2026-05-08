@@ -1,30 +1,32 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UsersController } from './users.controller';
+import { getModelToken } from '@nestjs/mongoose';
 import { UsersService } from './users.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { User } from './users.schema';
 
-const mockUsersService = {
-  findAll: jest.fn(),
+const mockUsers = [
+  { _id: '1', name: 'Test User', email: 'test@gmail.com', role: 'USER' },
+  { _id: '2', name: 'Admin User', email: 'admin@gmail.com', role: 'ADMIN' },
+];
+
+const mockUserModel = {
+  find: jest.fn(),
 };
 
-describe('UsersController', () => {
-  let controller: UsersController;
+describe('UsersService', () => {
+  let service: UsersService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      controllers: [UsersController],
       providers: [
+        UsersService,
         {
-          provide: UsersService,
-          useValue: mockUsersService,
+          provide: getModelToken(User.name),
+          useValue: mockUserModel,
         },
       ],
-    })
-      .overrideGuard(JwtAuthGuard)
-      .useValue({ canActivate: () => true })
-      .compile();
+    }).compile();
 
-    controller = module.get<UsersController>(UsersController);
+    service = module.get<UsersService>(UsersService);
   });
 
   afterEach(() => {
@@ -32,32 +34,37 @@ describe('UsersController', () => {
   });
 
   describe('findAll', () => {
-    it('should call usersService.findAll and return users', async () => {
-      const mockUsers = [
-        { _id: '1', name: 'Test User', email: 'test@gmail.com' },
-      ];
-      mockUsersService.findAll.mockResolvedValue(mockUsers);
+    it('should return all users successfully', async () => {
+      mockUserModel.find.mockResolvedValue(mockUsers);
 
-      const result = await controller.findAll();
+      const result = await service.findAll();
 
-      expect(mockUsersService.findAll).toHaveBeenCalledTimes(1);
+      expect(mockUserModel.find).toHaveBeenCalledTimes(1);
       expect(result).toEqual(mockUsers);
     });
 
-    it('should return empty array when no users', async () => {
-      mockUsersService.findAll.mockResolvedValue([]);
+    it('should return error object when DB throws error', async () => {
+      mockUserModel.find.mockRejectedValue(new Error('DB connection failed'));
 
-      const result = await controller.findAll();
+      const result = await service.findAll();
 
-      expect(result).toEqual([]);
+      expect(result).toEqual({ error: 'DB connection failed' });
     });
 
-    it('should return error when service throws', async () => {
-      mockUsersService.findAll.mockResolvedValue({ error: 'DB error' });
+    it('should return unknown error when non-Error is thrown', async () => {
+      mockUserModel.find.mockRejectedValue('some string error');
 
-      const result = await controller.findAll();
+      const result = await service.findAll();
 
-      expect(result).toEqual({ error: 'DB error' });
+      expect(result).toEqual({ error: 'Unknown error' });
+    });
+
+    it('should return empty array when no users exist', async () => {
+      mockUserModel.find.mockResolvedValue([]);
+
+      const result = await service.findAll();
+
+      expect(result).toEqual([]);
     });
   });
 });
